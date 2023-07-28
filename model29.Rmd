@@ -1,0 +1,437 @@
+---
+title: "Ecart au nombre de reads attendus dans une situation de répartition homogène"
+author: "Romann Charbonnier"
+output:
+  html_document:
+    toc: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+## Données
+
+Les données sont issues du travail réalisé par Maya Kellow-Bingham pendant son stage, dans le cadre du projet MoBiDiv. Elles proviennent d'un prélèvement d'ADN environnemental réalisé à la surface de feuilles de blé au sein de parcelles expérimentales à Mauguio, dans le but d'identifier les taxa d'insectes présents.  
+L'amplification a été faite sur trois marqueurs de la cytochrome oxydase I : HEX, LEP et HCO. 200 000 séquences exploitables en sont ressorties. L'assignation taxonomique s'est faite grâce à la base de données BOLD : 40 genres d'insectes ont pu être identifiés au sein des 80 échantillons. 
+
+```{r First data treatment, echo=FALSE, warning=FALSE, message=FALSE}
+
+setwd("E:/Cours/SupAgro/Stage M1/Analyses/Maya/")
+
+#packages
+library(data.table)
+
+rm(list=ls()) #to clear the memory if needed
+
+##### DATA #####
+
+bug<-read.table("newbug.txt",header=T)
+
+options("digits"=3, "scipen"=100)  #notation - 3 digits, not scientific
+
+
+
+##### merge rows/data treatment #####
+
+aggbug<-aggregate(cbind(p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p1, p20, p21, p22, p23,
+                        p24, p25, p26, p27, p28, p29, p2, p30, p31, p32, p33, p34, p35, p36, p37,
+                        p38, p39, p3, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p4, p50, p51,
+                        p52, p53, p54, p55, p56, p57, p58, p59, p5, p60, p61, p62, p63, p64, p65, p66,
+                        p67, p68, p69, p6, p70, p71, p72, p73, p74, p75, p76, p77, p78, p79, p7, p80,
+                        p81, p82, p83, p84, p85, p86, p87,p88, p89, p8, p90, p91, p92, p9) ~ spp + Guild, data = bug, sum)
+#to merge the same insects together
+
+guilds<-aggbug[,2]
+aggbug2<-aggbug[,-2] #to remove the guilds
+
+rownames(aggbug2)<-aggbug2[,1] #first column is species names, we want them as titles
+aggbug3<-aggbug2[,-1] #delete first column with names
+aggbug4<-aggbug3[,-79:-87]#delete (part of) samples with entire insects
+readsbug<-aggbug4[,-80:-82]#delete (rest of) samples with entire insects (2 parts separated because the 8th sample was in between)
+```
+
+```{r Creation of binary table, echo=FALSE}
+
+###CREATING TABLE WITH BINARY VALUES (PRESENT/MISSING)
+binbug<-(readsbug) #second table created based on reads one
+binbug[binbug>0]<-1 #if 1 read or more, take value 1 (presence) (else, still 0, absence)
+
+#we want the values need to be read as numbers, not text
+binbug[] <- lapply(binbug, as.numeric)
+readsbug[] <- lapply(readsbug, as.numeric)
+
+```
+
+```{r Creation of numeric table and values of interest, echo=FALSE}
+#we create a new variable which is the sum of reads for each insect
+sum_bugbin <- rowSums(binbug) 
+sum_bugreads <- rowSums(readsbug) 
+
+#we add them to the table
+newbin <- cbind(binbug, sum_col = sum_bugbin)
+newreads <- cbind(readsbug, sum_col = sum_bugreads)
+
+#sum of reads for each sample
+sum_samplereads <- colSums(newreads)
+#add to table
+newreads2 <- rbind(newreads, sum_row = sum_samplereads)
+
+##Now for each insect we want the proba to find it in a sample
+bugprob<-newbin$sum_col/80
+finalbin <- cbind(newbin, real_detection_prob = bugprob)
+
+#proportion reads 
+obstotreads<- sum(sum_bugreads) 
+####HERE IS  THE TOTAL OF IDENTIFIED INSECT READS. We could use the value 200000 which is approximately the nb of insects reads (even unidentified ones)
+readsprop<-newreads2$sum_col/obstotreads
+finalreads1<-cbind(newreads2, reads_proportion = readsprop) 
+sampreadsprop<-finalreads1[41,]/obstotreads ####we also want prop for the tot reads in each sample
+finalreads<-rbind(finalreads1, sample_reads_proportion = sampreadsprop)
+```
+
+Le nombre total de reads pris en compte est de `ntotreads` = `r obstotreads`. Il correspond au nombre de séquences pour lesquelles un genre d'insectes a pu être attribué.
+Un insecte est considéré comme détecté lorque l'on trouve au moins 1 read de celui-ci dans un échantillon.  Dans de nombreux échantillons, on ne trouve qu'un ou quelques insectes.
+
+**Nombre d'échantillons dans lesquels est détecté un taxon, résumé des données:**
+```{r, echo=FALSE}
+summary(finalbin$sum_col)
+```
+
+Les reads ne sont pas répartis de manière homogène : pour un insecte en particulier, une majorité des échantillons n'ont eu aucune amplification, mais lorsque cela a été le cas, plusieurs à quelques milliers de reads ont été retrouvés.
+
+**Nombre de reads totaux pour un taxon, résumé des données:**
+```{r, echo=FALSE}
+summary(finalreads$sum_col[1:40])
+```
+
+Le genre Chorthippus est considéré comme apparaissant dans aucun échantillon. Un prélèvement d'insectes observables avait été réalisé en plus du prélèvement d'ADNe et ce genre avait été séquencé, d'où son apparition dans ce jeu de données.  
+Le genre Oulema comptabilise le plus de reads, ainsi que le plus de présences en échantillon.  
+On s'intéresse plus précisément à la proportion des reads `readsprop` que représente chaque insecte, valeur qui sera réutilisée ensuite pour le modèle. 
+
+```{r, echo=FALSE, eval=FALSE}
+print(finalreads[,81:82])
+```
+
+```{r, echo=FALSE, eval=FALSE}
+summary(t(finalreads[1:40,]))
+```
+
+## Modèle d'homogénéité
+
+```{r Numeric model table, echo=FALSE}
+
+######################### MODEL WITH NUMB OF READS
+
+#######let's create a table of nb of reads with an equirepartition
+
+nbreads = obstotreads ##HERE choose an a nb of reads - we can choose the real nb of reads
+modelnum<-finalreads
+modelnum[41,1:80]<-finalreads[42,1:80]*nbreads #repartition of the reads per sample equivalent to the observed one
+modelnum[41,81]<-nbreads
+
+## predict nb of reads for each insect in each sample (is it really useful???)
+for (i in 1:40) {
+  for (j in 1:80) {
+    modelnum[i,j]<- modelnum[i,82]*modelnum[41,j] #we use the nb of reads in a sample and the proportion of each insect
+  }
+  modelnum[i,81]<-rowSums(modelnum[i,1:80])
+}
+
+```
+
+On s'intéresse à l'écart entre la distribution des reads obtenue pour les différents taxa et une hypothétique équirépartition des reads parmi les échantillons pour chaque insecte. Le but est de mettre en évidence quels insectes sont proches de ce modèle d'homogénéité et lesquels en sont le plus éloignés.  
+On commence par créer pour cela une table contenant le nombre de reads de chaque insecte dans chaque échantillon, à l'aide de `readsprop` et du nombre de reads totaux dans chaque échantillon. Cette table sera réutilisée ensuite.
+
+```{r, echo=FALSE, eval=FALSE}
+summary(t(modelnum[,1:80]))
+```
+
+```{r binomial, echo=FALSE}
+
+#BINOMIAL 
+
+modelprob<-finalreads  #we start with finalreads but will do the same with a model nb of reads
+### On s'intéresse à l'issue "oui ou non un read de cet insecte" donc pour chaque échantillon séparément on peut considérer une binomiale
+
+###### BINOMIAL FOR THE WHOLE TABLE 
+for (i in 1:40) {
+  for (j in 1:80) {
+    prob0=dbinom(x=0,   #First w want the proba to have 0 reads of the insect in the whole sample
+                 size=modelprob[41,j],        # Number of trials (n > = 0) so number of reads for the sample j
+                 prob=modelprob[i,82],        # The probability of success on each trial
+                 log = FALSE) # If TRUE, probabilities are given as log
+    modelprob[i,j]<-1-prob0  #finally we want P(>=1) = 1-(P(X=0))
+  }
+  #print (paste(rownames(modelprob)[i], modelprob[i])) #to check if everything goes well
+}
+
+# MEAN PROB FOR EACH INSECT
+modelmean<-rowMeans(modelprob[,1:80]) 
+modelprob[,81]<-modelmean
+colnames(modelprob)[81] <- "model_detection_prob"
+
+```
+
+### Probabilités de détection
+
+On souhaite trouver, pour un insecte donné, la probabilité de le détecter dans un échantillon dans le cas d'une distribution homogène de ceux-ci. On considère pour cela, pour chaque échantillon, que le nombre de reads de l'insecte suit une loi binomiale :   
+- le nombre de tirages est le nombre de reads obtenus dans l'échantillon,   
+- le succès est "obtenir 0 reads",   
+- la probabilité de succès à chaque tirage correspond à la proportion de reads correspondant à l'insecte.    
+Finalement, pour affirmer qu'il y a présence de l'insecte, on s'intéresse à la probabilité d'avoir au moins un read : `P(X>=1) = 1-(P(X=0))`.  
+La moyenne des probabilités de présence obtenues dans tous les échantillons pour un insecte est retenue et pourra être assimilée à la proportion d'échantillons dans lequel une présence a été détectée.    
+
+
+```{r result table, echo=FALSE}
+
+#####Result table to make it clearer
+result<-data.frame(reads_proportions=c(modelprob$reads_proportion[0:40]), 
+                   observed_detection=c(finalbin$real_detection_prob[0:40]), 
+                   equi_expected_detection_prob=c(modelprob$model_detection_prob[0:40]))
+
+rownames(result) <- rownames(finalbin) #I use finalbin to get back the bugs names because it has 40 rows
+
+
+```
+
+
+**Table des valeurs obtenues par taxon**
+```{r, echo=FALSE}
+knitr::kable(result)
+```
+
+### Extrapolation de la profondeur de séquençage
+
+```{r model function, echo=FALSE}
+
+#### NOW WE WANT TO CREATE A FUNCTION
+# we want to find proba too, but no need of a whole table (only mean for each insect), and we want to apply it to different values of totalreads
+
+
+model_proba <- function(x){ ### x is the hypothetical nb of reads
+
+  nbreads <- x ##HERE choose an a nb of reads - we can choose the real nb of reads
+  #print (nbreads)
+  
+  model_exp_proba <- result #this is the table we'll fill in
+  colnames(model_exp_proba)[3] <- nbreads
+  #first, build the samples based on nb of reads
+  
+ 
+  persample <- finalreads[42,1:80]*nbreads #repartition of the reads per sample 
+  rownames(persample)<-"reads_per_sample"
+  persample <- cbind(persample,nbreads)
+  persample <- round(persample[1,],0) #it must be an integer to use dbinom
+  
+  # then binomial. We work on lines (insects)
+  for (i in 1:40) {
+    line<-c() #new vector to get all the proba for the insect (and then do the mean)
+    for (j in 1:80) {
+      prob0=dbinom(x=0,   #First w want the proba to have 0 reads of the insect in the whole sample
+                   size=persample[1,j],        # Number of trials (n > = 0) so number of reads for the sample j. 
+                   prob=result[i,1],        # The probability of success on each trial
+                   log = FALSE) # If TRUE, probabilities are given as log
+      line <- c(line, 1-prob0)  #finally we want P(>=1) = 1-(P(X=0))
+      }
+    #print (line)
+    model_exp_proba[i,3]<-mean(line) #we're interested in the mean proba for each insect : we had it to the result column
+    model_exp_proba[i,3]<-model_exp_proba[i,3]
+    }
+  output=model_exp_proba
+  return (output)
+  }           
+
+```
+
+En suivant ce même modèle, on s'intéresse à la probabilité d'obtenir la présence d'un insecte dans un échantillon dans le cas où l'on aurait une profondeur de séquençage bien plus élevée (et donc plus de reads au total). Dans ce but, on crée une fonction `model_proba(x)` qui prend en entrée le nombre de reads d'insectes que l'on souhaite tester. De la même manière que précédemment, une loi binomiale permet d'obtenir les probabilités par insecte.   
+
+```{r comparing different readsvalues, echo=FALSE, warning=FALSE}
+
+#### We need to do that with several values of reads
+
+readsvalues<-c(50000,100000, 200000, 500000,800000,1000000,2500000,5000000) #we can change it here
+
+len<-length(readsvalues)
+
+rm(comparisonreads) #if i only play part of the code, i need to make sure the data frame doesn't already exist (else it will add to the previous one)
+comparisonreads<-data.frame(obstotreads=c(modelprob$model_detection_prob[0:40])) #we start to create a new dataframe to be able to compare probas for different values of reads
+
+for (i in 1:len) {  #for each chosen readsvalue, we play the function to find proba and add it to the table
+  r<-readsvalues[i]
+  comparisonreads<-cbind(comparisonreads,model_proba(r)[3])
+}
+
+meanscomp<-colMeans(comparisonreads) #the mean proba for all insects
+comparisonreads2<-rbind(comparisonreads, mean_proba = meanscomp)
+comparisonreads3<-rbind(comparisonreads2, colnames(comparisonreads2)) #to be able to use the chosen number of reads in the graph
+comparisonreads3<-comparisonreads3[,-1] #to remove obstotreads column #could use it actually... (it's the equirepartition with the actual tot nb of reads)
+comparisonreads3[] <- lapply(comparisonreads3, as.numeric)
+
+```
+
+Nous choisissons plusieurs valeurs de reads totaux, contenues dans le vecteur `readsvalues`. Ici, `readsvalues` = `r readsvalues`.
+La fonction `model_proba(x)` est appliquée sur chacun des éléments et les probabilités obtenues pour les différents insectes sont stockées dans le but d'être comparées.
+```{r, echo=FALSE}
+summary(comparisonreads3[1:40,1:len])
+```
+
+Le nombre de reads augmentant, certains insectes commencent à être trouvés dans tous les échantillons, sauf ceux qui étaient entièrement vides à l'origine (car ils ne se voient attribuer aucun read sur le modèle). Cela amène à une probabilité maximale d'environ 0.712, que tous les insectes qui représentaient une proportion non nulle des séquences approchent pour un nombre infini de séquences totales.
+
+```{r graph, echo=FALSE, warning=FALSE, message=FALSE}
+#####GRAPH
+
+# Creating a colour palette 
+colour_palette <- rainbow(40) ###We want 40 different colors since we have 40 insects
+# Déterminer les limites des axes x et y
+
+#Axes limits
+x_lim <- c(min(readsvalues), max(readsvalues))
+y_lim <- c(0.3,0.75)
+
+# Extraire les valeurs pour l'axe x et l'axe y
+x_values <- as.numeric(t(comparisonreads3[42,]))   #need to transpose to get vectors with values for all columns
+y_values <- as.numeric(t(comparisonreads3[41,]))
+
+# Tracer le plot pour la moyenne
+plot(x_values, y_values, type = "o", lwd=1.5, pch = 20, xlim=x_lim, ylim=y_lim, title = "Curve of percentage of samples containing insects depending on sequencing effort (total number of insect reads)", xlab = "hypothetic nb of reads", ylab = "proportion of samples with detection")
+
+# add lines for each insects
+for (i in 1:40) {
+  y_insect <- as.numeric(t(comparisonreads3[i,]))
+  lines(x_values,y_insect, type = "l", col=colour_palette[i])
+}
+
+```
+**Courbe des probabilités**
+
+La moyenne de proportion de détection/probabilité de tous les insectes est représentée en noir. Chaque courbe colorée correspond à un taxon spécifique. On voit qu'elles ont des pentes différents et que pour certains insectes, l'asymptote est approchée avec un nombre de reads bien moindre que pour d'autres.
+
+## Distance des insectes au modèle
+
+### Distance du khi²
+
+```{r khisquare, echo=FALSE}
+
+####khi dist
+khidist<-c()
+for (i in 1:40) {
+  linekhi<-c()
+  for (j in 1:80) {
+    if (modelnum[i,j]>0) {
+      linekhi<-c(linekhi,(finalreads[i,j] - modelnum[i,j])**2/modelnum[i,j])
+    }
+    else{
+      linekhi<-c(linekhi,0)
+    }
+  }
+  #print(linekhi)
+  khidist<-c(khidist, mean(linekhi))
+}
+resultkhi<-cbind(result, khidist)
+
+```
+
+Une distance du khi² est calculée entre le nombre de reads obtenu et le nombre hypothétique du modèle pour chaque échantillon et insecte. Une moyenne des valeurs de chaque insecte est réalisée. Cependant, on se rend compte que la valeur de distance calculée est biaisée par le nombre de reads pour l'insecte. Ce paramètre doit donc être corrigé : on crée donc un autre estimateur de distance.
+
+### Création d'un estimateur de distance au modèle
+
+L'estimateur est créé arbitrairement et a pour but de pouvoir comparer entre eux les insectes (et leur différence au modèle) malgré les nombres très différents de séquences qui leur sont attribuées.  A la place des valeurs numériques, il s'agit alors de prendre en compte les fréquences observées `Fobs` et attendues `Fatt`. Etant donnée l'hypothèse d'équirépartition du modèle, `Fatt` correspond à `readsprop` (la proportion de reads totaux qui sont attribués à l'insecte en question).  
+L'estimateur est le suivant : 
+$estim=\frac{\frac{1}{ntotreads-1}\sum(Fobs-Fatt)²}{Fatt(1-Fatt)}$.
+
+```{r table freqobs, echo=FALSE}
+### ON VEUT CALCULER ECART AU MODELE POUR INSECTE. 
+#idée d'utiliser les fréquences et corriger par un facteur pour pouvoir comparer insectes
+
+# création table fréquences
+
+freqobs<-modelnum
+
+for (i in 1:40) {
+  for (j in 1:80) {
+    if (freqobs[41,j]>0) {
+      freqobs[i,j]<-freqobs[i,j]/freqobs[41,j]
+    }
+    else{
+      freqobs[i,j]<-0
+    }
+  }
+}
+```
+
+```{r estim calculation, echo=FALSE}
+
+
+#ce vecteur va contenir une valeur arbitraire calculée pour chaque insecte, qui permettra de comparer leurs écarts à l'homogénéité.
+estim<-rep(0, times=40)
+
+for (i in 1:40) {
+  if (freqobs[i,82]>0) { #on ne veut pas de valeurs nulles dans le programme
+    line<-c() #contiendra les valeurs d'intérêt pour les colonnes avant d'en faire la somme
+    for (j in 1:80) {
+      line<-c(line, (freqobs[i,j]-freqobs[i,82])**2)
+    }
+    sumline<-sum(line) 
+    estim[i]<-((sumline/(obstotreads-1))/(freqobs[i,82]*(1-freqobs[i,82])))#on ajoute la valeur calculée au vecteur contenant les valeurs de tous les insectes
+    estim[i]<--log(estim[i])
+  }
+}
+
+resultkhi2<-cbind(resultkhi,estim) #on ajoute à une table de résultats pour visualiser
+
+```
+
+```{r, echo=FALSE}
+knitr::kable(resultkhi2)
+```
+
+```{r graph2}
+#####GRAPH
+readsvalues<-c(100,200,500,1000,2000,3000,5000,8000,10000,15000,20000)
+
+len<-length(readsvalues)
+
+rm(comparisonreadsg) #if i only play part of the code, i need to make sure the data frame doesn't already exist (else it will add to the previous one)
+comparisonreadsg<-data.frame(obstotreads=c(modelprob$model_detection_prob[0:40])) #we start to create a new dataframe to be able to compare probas for different values of reads
+
+for (i in 1:len) {  #for each chosen readsvalue, we play the function to find proba and add it to the table
+  r<-readsvalues[i]
+  comparisonreadsg<-cbind(comparisonreadsg,model_proba(r)[3])
+}
+
+meanscompg<-colMeans(comparisonreadsg) #the mean proba for all insects
+comparisonreadsg2<-rbind(comparisonreadsg, mean_proba = meanscompg)
+comparisonreadsg3<-rbind(comparisonreadsg2, colnames(comparisonreadsg2)) #to be able to use the chosen number of reads in the graph
+comparisonreadsg3<-comparisonreadsg3[,-1] #to remove obstotreads column #could use it actually... (it's the equirepartition with the actual tot nb of reads)
+comparisonreadsg3[] <- lapply(comparisonreadsg3, as.numeric)
+
+
+#Axes limits
+x_lim <- c(1, max(readsvalues))
+y_lim <- c(0,0.7)
+
+# Extraire les valeurs pour l'axe x et l'axe y
+x_values <- as.numeric(t(comparisonreadsg3[42,]))   #need to transpose to get vectors with values for all columns
+y_values <- as.numeric(t(comparisonreadsg3[41,]))
+
+# Tracer le plot pour la moyenne
+p<-plot(log10(x_values), y_values, type = "o", lwd=1.5, pch = 20, xlim=log10(x_lim), ylim=y_lim, xlab = "log hypothetic nb of reads", ylab = "proportion of samples with detection")
+
+#add attendu points
+for (i in 1:40) {
+  x_att<-log10(finalreads[i,81])
+  y_att<-resultkhi2[i,3]
+  points(x_att, y_att, col=colour_palette[i], pch=20)
+}
+
+
+#add obs points
+for (i in 1:40) {
+  x_point<-log10(finalreads[i,81])
+  y_point<-resultkhi2[i,2]
+  points(x_point, y_point, col=colour_palette[i], pch=1)
+}
+
+```
+
+```
+
