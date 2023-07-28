@@ -1,0 +1,444 @@
+---
+title: "Data analysis with removed 9 blumeria"
+output: html_document
+date: "2023-07-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Data
+
+```{r data, warning=FALSE, message=FALSE}
+setwd("E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data")
+
+#packages
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(factoextra)
+library(car)
+
+rm(list=ls()) #to clear the memory if needed
+
+##### DATA #####
+
+#importation of reads table
+seqtab_final<-readRDS("seqtab_final.rds")
+tab_final<-t(seqtab_final)
+
+tab_final2<-tab_final[,-4] #elimination of sample 104 because it looks like an error
+
+errors<-c("AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGAATCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACTCTCAACGGGAATCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACTCTCAACGGGAATCGGGATGCGGCATCTGGTCACTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGATTCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGATTCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTAGACGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGACACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGATTCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGACCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGATTCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACGCAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGAATCGGAATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGCTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT",
+          "AACGCAAGTTGCGCCCGAGGCCACTCGGCCGAGGGCACGCCTGCCTGGGCGTCACGCCAAAACACGCTCCCAACCACCCTCAACGGGATTCGGGATGCGGCATCTGGTCCCTCGTCTCTCAAGGGACGGTGGACCGAAGATTGGGTTGCCGGCGTACCGCGCCGGACACAGCGCATGGTGGGCGTCCTCGCTTTATCAATGCAGTGCATCCGGCGCGCAGCTGGCATTAT")
+#these are the sequences attributed to Blumeria graminis that are actually wheat (according to a separate analysis and blasting)
+
+seq<-rownames(tab_final2)#this vector contains all sequences
+rowerrors<-c()#this one will contain the row nb of the sequences to discard
+for (i in 1:length(seq)){
+  for (a in 1:length(errors)){
+    if (seq[i]==errors[a]){
+      rowerrors<-c(rowerrors,i)
+    }
+  }
+}
+
+tab_final3<-tab_final2[-rowerrors,]
+#We lost 9 asv and 2419 reads
+
+colnames(tab_final3)<-paste0("EPO_", colnames(tab_final3))
+
+#creation of binary (presence/absence) table
+bin_final<-tab_final3
+bin_final[bin_final>0]<-1
+
+#importation of the taxa table
+tax_final<-readRDS("tax_final.rds")
+
+
+```
+
+```{r merge}
+
+merged<-merge(tax_final, tab_final3, by=0) #merged table with taxa and nb of reads
+
+#binarytable
+presence<-merge(tax_final, bin_final, by=0) #merged table with taxa and presence/absence
+
+#sum of reads for an asv
+readsum<-rowSums(merged[,9:187])
+totreads<-sum(readsum) #8735570
+
+#nb of samples with detection for an asv
+presencesum<-rowSums(presence[,9:187])
+
+
+```
+
+9 sequences, that represented `2419` reads were deleted, because they were incorrectly attributed to Blumeria graminis while being wheat sequences.
+The total number of reads among all asv is `8735570`. Genus Blumeria (powdery mildew agent) represents around `46%` of the reads and Puccinia (wheat rust) represents around 23% of the reads.
+
+```{r hist}
+
+#nb of reads per sample (histogram)
+sumsample<-colSums(merged[,9:187])
+hist(sumsample, col="steelblue", main="nb of reads per sample")
+abline(v = mean(sumsample), col = 'red') #adding the mean vertical line
+
+#nb of variants per sample (histogram)
+presencesumsample<-colSums(presence[,9:187])
+hist(presencesumsample, col="steelblue", main="nb of asv per sample")
+abline(v = mean(presencesumsample), col = 'red') #adding the mean vertical line
+
+```
+
+```{r GROUP, message=FALSE}
+
+#table with interesting values
+values<-merged[,1:8]
+values<-cbind(values,readsum,presencesum)
+
+#to have a look at the data ! We can change the "group by" parameter
+groupvalues <- values %>% group_by(Phylum, Genus) %>%
+  summarise(total_reads = sum(readsum), maxnbpresence = max(presencesum), nbvar = n())
+
+```
+
+```{r aggregation for main tables}
+
+####### Aggregation of reads table
+setDT(merged)
+
+group_cols <- c("Phylum,Genus")  #We group by Genus. 
+sample_cols <- names(merged)[9:187]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+result <- merged[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+#We only keep identified Genus
+aggreads <- result[complete.cases(result[, Genus]), ]
+
+newnames<- aggreads$Genus
+aggreads2 <- data.frame(aggreads[, -1:-2], row.names = newnames)
+colnames(aggreads2)<-colnames(aggreads[,3:181]) #to get rid of the newly added x before sample name
+
+######Creation of the aggregated table of presence based on reads
+aggbin<-aggreads2
+aggbin[aggbin>0]<-1
+
+####### Creation of the table nb of asv present for each genus
+
+setDT(presence)
+
+group_cols <- c("Phylum,Genus")  #We group by Genus. 
+sample_cols <- names(presence)[9:187]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+result <- presence[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+#We only keep identified Genus
+aggasv <- result[complete.cases(result[, Genus]), ]
+
+newnames<- aggasv$Genus
+aggasv2 <- data.frame(aggasv[, -1:-2], row.names = newnames)
+colnames(aggasv2)<-colnames(aggasv[,3:181]) #to get rid of the newly added x before sample name
+
+
+```
+
+```{r sums}
+
+#nb of reads per genus
+sumgen<-rowSums(aggreads2)
+
+#nb of detected presence per genus
+sumpresgen<-rowSums(aggbin)
+totpres<-sum(sumpresgen)
+
+data <- t(rbind(sumgen,sumpresgen))
+data<-as.data.frame(data)
+data<-top_n(data, 15, sumpresgen) 
+knitr::kable(data,
+caption = "Top 15 most present genera")
+
+```
+
+
+```{r var and reads}
+tasv2<-as.data.frame(t(aggasv2))
+treads2<-as.data.frame(t(aggreads2))
+sumasv2<-rowSums(tasv2)
+sumreads2<-rowSums(treads2)
+
+
+plot(tasv2$g__Blumeria,treads2$g__Blumeria)
+cor.test(tasv2$g__Blumeria,treads2$g__Blumeria)
+
+plot(tasv2$g__Zymoseptoria,treads2$g__Zymoseptoria)
+cor.test(tasv2$g__Zymoseptoria,treads2$g__Zymoseptoria)
+
+plot(tasv2$g__Cladosporium,treads2$g__Cladosporium)
+cor.test(tasv2$g__Cladosporium,treads2$g__Cladosporium)
+
+plot(tasv2$g__Puccinia,treads2$g__Puccinia)
+cor.test(tasv2$g__Puccinia,treads2$g__Puccinia)
+
+
+```
+
+
+
+```{r possible graph, eval=FALSE}
+
+######### Same by Class 
+
+group_cols <- c("Class")  #We group by class. 
+sample_cols <- names(merged)[9:187]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+result <- merged[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+#We only keep identified class
+aggclass <- result[complete.cases(result[, Class]), ]
+
+newnames<- aggclass$Class
+aggclass2 <- data.frame(aggclass[, -1], row.names = newnames)
+colnames(aggclass2)<-colnames(aggclass[,2:180]) #to get rid of the newly added x before sample name
+
+#Creation of the aggregated table of presence
+aggbinclass<-aggclass2
+aggbinclass[aggbinclass>0]<-1
+
+
+#nb of reads per genus
+sumgen<-rowSums(aggreads2)
+
+#nb of detected presence per genus
+sumpresgen<-rowSums(aggbin)
+totpres<-sum(sumpresgen)
+
+#then percent stacked barplot?
+
+```
+
+## Multivariate analysis
+
+```{r PCA genus only, eval=FALSE}
+
+pcagen <- prcomp((aggreads2)) 
+
+#pca on genera
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcagen)
+eig.val[1:4,]
+fviz_eig(pcagen)
+
+#graph
+fviz_pca_ind(pcagen,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             select.ind=list(contrib=10),
+             repel=TRUE
+             )
+
+#Blumeria genus is responsible for a majority of the variance on axis1 which represents 90.8% of the variance. Puccinia (wheat rust agent) is also well discribed on this axis, while all other genera are clustered together. Blumeria and Puccinia are opposed on axis 2 (7.7%) while all other genera cluster together around the origin.
+
+```
+
+### PCA analysis on nb of reads
+
+```{r PCA on reads}
+
+pcasam <- prcomp(t(aggreads2))
+
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcasam)
+eig.val[1:4,]
+fviz_eig(pcasam)
+
+fviz_pca_ind(pcasam,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = FALSE     # Avoid text overlapping
+             )
+
+fviz_pca_var(pcasam,
+             col.var = "contrib", # Color by contributions to the principal axes
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             select.var=list(contrib=(5)),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+#get the name of the top 10 genera that contribute most to the principal axes.
+loading_scores <- pcasam$rotation[,1]
+genera_scores <- abs(loading_scores) ## get the magnitudes
+genera_score_ranked <- sort(genera_scores, decreasing=TRUE)
+top10_genera <- names(genera_score_ranked[1:10])
+ 
+pcasam$rotation[top10_genera,1:3] ## show the scores and sign
+
+
+
+```
+
+Genera that represent the majority of reads (Blumeria, Puccinia) represent almost all the variance.
+
+
+### PCA analysis on presence/absence
+
+```{r PCA on presence}
+
+#PCA
+pcabin <- prcomp(t(aggbin))
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcabin)
+eig.val[1:10,]
+fviz_eig(pcabin)
+
+fviz_pca_ind(pcabin,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = FALSE     # Avoid text overlapping
+             )
+
+fviz_pca_var(pcabin,
+             col.var = "contrib", # Color by contributions to the principal axes
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             select.var=list(contrib=20),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+# Contributions of variables to PC1
+fviz_contrib(pcabin, choice = "var", axes = 1, top = 10)
+
+```
+
+"Rare" genera are the ones that are highlighted by the PCA on presence/absence.
+
+## Relation with the field
+
+```{r patho}
+
+#import field data on phytopathologies 
+patho<-read.csv("notations_patho.csv",header=T)
+colnames(patho)<-patho[2,]
+tabpatho<-patho[-1:-2,] #first lines are empty
+
+#merge table
+################# INSTEAD OF AGGASV2 I CAN USE AGGREADS2 to do it on nb of reads
+tagg<-t(aggreads2)
+rownames(tabpatho)<-tabpatho[,1]
+tabpatho2<-tabpatho[,-1]
+
+pathodata<-merge(tabpatho2, tagg, by=0)
+
+
+nbgen<-rowSums(pathodata[,4:171])
+
+pathonbgen<-cbind(nbgen,pathodata)
+
+```
+
+Results from the phytopathology observations performed in june are imported. They consist in an impact mark for powdery mildew and for wheat rust, for each genotype. We can have a look at this data to find a possible correlation.
+
+```{r test patho}
+
+#patho mark according to #nb of asv
+plot(pathonbgen$g__Blumeria,pathonbgen$Oïdium, main="Powdery mildew mark according to nb of Blumeria variants")
+cor.test(pathonbgen$g__Puccinia,as.numeric(pathonbgen$Rouille))
+plot(pathonbgen$g__Puccinia,pathonbgen$Rouille, main="Wheat rust mark according to nb of Puccinia variants")
+
+#patho mark according to #nb of genera (diversity)
+plot(pathonbgen$nbgen,pathonbgen$Oïdium,main="Powdery mildew mark according to nb of fungi genera")
+
+```
+
+## Diversity index
+
+```{r diversity}
+
+#Creation of frequency table necessary for shannon index
+
+freqreads<-t(pathodata)
+for (j in 1:171){
+  tot<-sum(as.numeric(freqreads[4:1211,j]))
+  for (i in 4:1211){
+    val<-as.numeric(freqreads[i,j])
+    freqreads[i,j]<-as.numeric(val/tot)
+  }
+}
+
+#Shannon diversity index
+shindex<-c()
+for (j in 1:171){
+  sumline<-c()
+  for (i in 4:1211){
+    p<-as.numeric(freqreads[i,j])
+    if (p>0) {
+    sumline<-c(sumline, p*log(p))
+    }
+  }
+  shindex<-c(shindex,-sum(sumline))
+}
+
+#creation of table necessary for simpson index
+
+simreads<-t(pathodata)
+for (j in 1:171){
+  tot<-sumsample[j]
+  for (i in 4:1211){
+    n<-as.numeric(simreads[i,j])
+    if (n>0){
+    simreads[i,j]<-n*(n-1)
+    }
+  }
+}
+
+#Simpson diversity index
+simindex<-c()
+for (j in 1:171){
+  sumline<-c()
+  for (i in 4:1211){
+    ni<-as.numeric(simreads[i,j])
+    if(ni>0){
+    sumline<-c(sumline, ni)
+    }
+  }
+  nn<-sumsample[j]
+  simindex<-c(simindex,sum(sumline)/(nn*(nn-1)))
+}
+
+
+```
+
+Shannon index H' is an alpha-diversity index which account for the diversity of species (or as used here, genera) in a population (here, a sample). If a population is homogenous (with only one genus), H'=0. It is calculated as follows :
+$H' = -\sum( p_i*ln(p_i))$  
+
+Simpson index $\lambda$ is another alpha-diversity index which account for the homogeneity of a population : the closer to 1, the more homogenous the population is. This index corresponds to the probability that two randomly selected individuals in a population belong to the same species. Compared to Shannon index, it gives more weight to abondant species, while Shannon index is more sensitive to the presence of rare species. It is calculated as follows:
+$\lambda= \frac{\sum {n_i*(n_i-1)}}{N*(N-1)}$  
+
+These index take into account the diversity of taxa and the number of individuals within taxa. Here, we use the nb of variants instead of nb of individuals.
+
+```{r test index}
+hist(shindex, col="steelblue", main="Shannon index per population")
+hist(simindex, col="steelblue", main="Simpson index per population")
+
+plot(shindex,simindex)
+cor.test(shindex,simindex)
+
+plot(shindex,pathonbgen$Oïdium)
+plot(simindex,pathonbgen$Oïdium)
+
+```
+

@@ -1,0 +1,647 @@
+---
+title: "Data analysis with removed 9 blumeria"
+output: html_document
+date: "2023-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Data
+
+```{r data, warning=FALSE, message=FALSE}
+setwd("E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data")
+
+#packages
+library(data.table)
+library(dplyr)
+library(seqinr)
+library(ggplot2)
+library(factoextra)
+library(car)
+library(vegan)
+
+rm(list=ls()) #to clear the memory if needed
+
+##### DATA #####
+
+#importation of reads table
+seqtab_final<-readRDS("seqtab_final.rds")
+tab_final<-t(seqtab_final)
+
+tab_final2<-tab_final[,-4] #elimination of sample 104 because it looks like an error
+
+colnames(tab_final2)<-paste0("EPO_", colnames(tab_final2))
+
+#creation of binary (presence/absence) table
+bin_final<-tab_final2
+bin_final[bin_final>0]<-1
+
+#importation of the taxa table
+tax_final<-readRDS("tax_euka2207final.rds")
+
+```
+
+```{r merge}
+
+merged<-merge(tax_final, tab_final2, by=0) #merged table with taxa and nb of reads
+
+#binarytable
+presence<-merge(tax_final, bin_final, by=0) #merged table with taxa and presence/absence
+
+#sum of reads for an asv
+readsum<-rowSums(merged[,16:194])
+totreads<-sum(readsum) #8737989
+
+#nb of samples with detection for an asv
+presencesum<-rowSums(presence[,16:194])
+
+
+```
+
+```{r hist}
+
+#nb of reads per sample (histogram)
+sumsample<-colSums(merged[,16:194])
+hist(sumsample, col="steelblue", main="nb of reads per sample")
+abline(v = mean(sumsample), col = 'red') #adding the mean vertical line
+
+#nb of variants per sample (histogram)
+presencesumsample<-colSums(presence[,16:194])
+hist(presencesumsample, col="steelblue", main="nb of asv per sample")
+abline(v = mean(presencesumsample), col = 'red') #adding the mean vertical line
+
+```
+
+```{r asv presence}
+presencesumvar<-rowSums(presence[,16:194])
+check<-c()
+for (i in 1:12963){
+  if (presencesumvar[i]<3){
+    check<-c(check,i)
+  }
+}
+
+hist(presencesumvar, col="steelblue", main="nb of sample of presence per variant")
+abline(v = mean(presencesumvar), col = 'red') #adding the mean vertical line
+```
+
+```{r GROUP, message=FALSE}
+
+#table with interesting values
+values<-merged[,1:8]
+values<-cbind(values,readsum,presencesum)
+
+#to have a look at the data ! We can change the "group by" parameter
+groupvalues <- values %>% group_by(tax.Phylum, tax.Genus) %>%
+  summarise(total_reads = sum(readsum), maxnbpresence = max(presencesum), nbvar = n())
+
+```
+
+## Genera of interest
+
+```{r pathomerged}
+#list of genera of interest (because phytopatho)
+pathogen<-c("g__Zymoseptoria", "g__Fusarium", "g__Microdochium", "g__Puccinia", "g__Blumeria", "g__Alternaria", "g__Pyrenophora")
+
+
+tokeep<-c()
+for (i in 1:12963){
+  if (merged[i,7] %in% pathogen){ #if the genus of a variant is one of the patho ones
+    tokeep<-c(tokeep,i) #we keep its line
+  }
+}
+
+pathomerged<-rbind(merged[tokeep,]) #new table with only patho genera
+
+```
+7 genres intéressants (niveau phytopatho) sont choisis ici.
+
+```{r seq and name function}
+
+create.fasta <- function(rank, x){  #rank is the level of classification we want as the nb of column, x is the specific taxon we want in this level
+  
+  #finding the sequences of that taxon x 
+  seqs<-c() #will contain sequences of taxon x
+
+  names<-c() #will contain their names
+  count<-0 #will contain the nb of sequences found
+  
+  for (i in 1:12963){ #we test every asv
+    
+    #we find the taxon we want
+    if (is.na(merged[i,rank])==FALSE & merged[i,rank]==x){ #if it belongs to taxon x
+      
+      seqs<-c(seqs,merged[i,1]) #add seq to list
+      count<-count+1
+      sp<-NA #more precise taxon
+      
+      if (is.na(merged[i,rank+1])==FALSE & merged[i,rank+1+7]>50){ #if there is an identified lower taxon with satisfactory bootstrap value
+        sp<-merged[i,rank+1] #keep that taxon name
+      }
+      
+      names<-c(names,paste0(x,"__",sp,count)) #the name of the seq will be genus name, a unique nb, potential species name
+    }
+  }
+  
+  result<-cbind(seqs,names)
+  return(result)
+}
+```
+
+```{r compare presence for genus}
+
+compar.pres<-function(x){  #this function creates a table with every sequences from a genus, its invented unique name, and the nb of samples it appears in
+  
+  res<-as.data.frame(create.fasta(7,x)) #we get that table with all sequences from a genus+names given
+  print(res)
+  seqs<-res[,1] #first col is sequences
+
+  namesbin<-rownames(bin_final) #the rownames of the binary table are sequences
+
+  nbpres<-c() #this vector counts the nb of presence
+
+  for (l in 1:length(seqs)){ #go through all sequences
+  
+    for (i in 1:length(namesbin)){ #go through the whole table
+  
+      if (namesbin[i]==seqs[l]){ #we find the line of the sequence
+      nbpres<-c(nbpres, sum(bin_final[i,])) #count the presence and had the value to the vector
+        break
+      }
+    
+    }
+  }
+  result<-cbind(res,nbpres)
+  
+  return(result)
+}
+
+tablelist<-list() #will stock the table for each genus
+for (g in 1:length(pathogen)){ #we do the function for every genus 
+  tablelist[[g]]<-compar.pres(pathogen[g]) 
+}
+
+```
+
+```{r creating file for patho genera, eval=FALSE}
+
+for (i in 1:length(pathogen)){
+
+  genus<-pathogen[i]
+  
+  result<-create.fasta(7,genus)
+  
+  seqs = as.list(result[,1])
+  names = as.list(result[,2])
+  write.fasta(seqs, names, paste0(pathogen[i],"_euka",".fasta"),
+            open = "w", as.string = FALSE)
+}
+
+
+```
+ 
+```{r distance and assignation to closest one}
+
+#import a file (created on MEGA based on alignments with nb of difference between each sequence)
+distlist<-list() #this list will contain all the distance matrix
+for (g in 1:length(pathogen)){ 
+  filename<-paste0(pathogen[g],"_Distance")
+  place<-paste0("E:/Cours/SupAgro/Stage M1/Analyses/Romann/MEGA/Base euca/",filename)
+  mat<-as.data.frame(read.csv(place))
+  distlist[[g]]<-mat
+}
+
+for (g in 1: length(distlist)){
+  
+  mdist<-distlist[[g]]
+  gentable<-tablelist[[g]]
+  
+  colnames(mdist)<-gsub("_", "__", colnames(mdist))
+  mdist[,1]<-gsub("_", "__", mdist[,1])
+  rownames(mdist)<-mdist[,1]
+  mdist<-as.matrix(mdist[,-1])
+
+  mdist[upper.tri(mdist)] <- t(mdist)[upper.tri(mdist)] #having a symmetric matrix will be easier
+  diag(mdist)<-0
+
+  #Identifying sequences present in enough samples
+  mainseq<-c()
+
+  for (i in 1:nrow(gentable)){ #we go through all the sequences of the genus
+    if (gentable[i,3]>2){
+      mainseq<-c(mainseq,gentable[i,2])
+    }
+  }
+
+
+  #all other sequences will be attributed to the "closest" (in nb of diff) among the main ones
+
+  gentable2<-cbind(gentable,"seq_ref"=gentable[,2],"distance_to_ref"=0)#this last column will contain for each seq the name of the main one it is the closest to
+
+  namecol<-colnames(mdist)
+  namerow<-rownames(mdist)
+  
+  for (i in 1:nrow(gentable2)){ #we test all sequences 
+  
+    #case1:the sequence is one of the main ones
+    if ((gentable2[i,2] %in% mainseq)==FALSE){ #if the sequence is not already one of the main ones
+    
+      for (k in 1:nrow(mdist)){
+        if (namerow[k]==gentable2[i,2]){ #we find its line in the distance table
+
+          closest<-1 #initialisation of the closest one
+          valueclosest<-1000
+        
+          for (l in 1:ncol(mdist)){ #we look at all other sequences
+
+            if (mdist[k,l]<valueclosest & namecol[l] %in% mainseq & k!=l) { #if we find a sequence that is in the main sequences list and that is closer to the one we're studying
+              closest<-l #this sequence becomes the closest one
+              valueclosest<-mdist[k,l]
+            }
+          }
+        gentable2[i,4]<-namecol[closest]
+        gentable2[i,5]<-valueclosest
+        }
+      
+      }
+    
+    }
+  
+  } #one genus is done
+  
+  tablelist[[g]]<-gentable2
+  
+} #all genera are done
+
+resall<-seq(0,length(tablelist))
+for (g in 1:length(pathogen)){ 
+  resall<-rbind(resall,tablelist[[g]])  #this table contains all
+}
+resall<-resall[-1,]
+
+```
+Matrice de distance créée avec MEGA
+-> on garde variants assez présents et on regarde lequel parmi ceux-là est le plus proche pour chacun
+
+```{r aggregation under variant of ref}
+toaggreg<-pathomerged
+colnames(toaggreg)[9] <- "ref_seq"
+toaggreg<-toaggreg[,-10:-15]
+toaggreg[,9]<-toaggreg[,1] #col9 will be used to store the ref seq
+
+for (i in 1:nrow(resall)){ #for every variant that has been tested for distance
+  ta<-which(toaggreg[,1]==resall[i,1]) #finding the line of the variant
+  toaggreg[ta,9]<-resall[i,4] #f
+  ind<-which(resall[,2]==toaggreg[ta,9]) #finding the sequence based on its name
+  toaggreg[ta,9]<-resall[ind,1]
+}
+
+setDT(toaggreg)
+
+group_cols <- c("tax.Phylum,tax.Genus,ref_seq")  #We group by ref_seq (and keep other info)
+sample_cols <- names(toaggreg)[10:188]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+aggpatho <- toaggreg[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+```
+On regroupe sous le variant gardé le plus proche
+
+```{r final aggregation }
+
+
+####### Aggregation of reads table
+setDT(aggpatho)
+
+group_cols <- c("tax.Phylum,tax.Genus")  #We group by Genus. 
+sample_cols <- names(aggpatho)[4:182]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+new <- aggpatho[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+newnames<- new$tax.Genus
+aggpatho2 <- data.frame(new[, -1:-2], row.names = newnames)
+
+genrsums<-rowSums(aggpatho2)
+totgenr<-sum(genrsums) #6454142
+
+
+######Creation of the aggregated table of presence based on reads
+aggbin<-aggpatho2
+aggbin[aggbin>0]<-1
+
+genpresum<-rowSums(aggbin)
+totgenpre<-sum(genpresum)
+
+
+####### Creation of the table nb of asv present for each genus
+
+aggpres<-as.data.frame(aggpatho)
+for (i in 1:nrow(aggpres)){
+  for (j in 4:ncol(aggpres)){
+    if (aggpres[i,j]>1){
+      aggpres[i,j]<-1
+    }
+  }
+}
+
+setDT(aggpres)
+
+group_cols <- c("tax.Phylum,tax.Genus")  #We group by Genus. 
+sample_cols <- names(aggpres)[4:182]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+aggvar <- aggpres[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+newnames<- aggvar$tax.Genus
+aggvar2 <- data.frame(aggvar[, -1:-2], row.names = newnames)
+
+
+
+```
+Aggregation par genre pour traiter le genre dans son ensemble
+
+```{r frequence table}
+freqreads<-aggpatho2
+for (j in 1:ncol(freqreads)){
+  tot<-sum(as.numeric(freqreads[1:7,j]))
+  for (i in 1:nrow(freqreads)){
+    val<-as.numeric(freqreads[i,j])
+    freqreads[i,j]<-as.numeric(val/tot)
+  }
+}
+```
+
+```{r genus comparison}
+# Barplot
+datagenus<-cbind(genrsums,genpresum)
+datagenus[,1:2]<-datagenus[,1:2]
+
+##nb of variant kept for each genus
+nbvar<-c()
+for (i in 1:nrow(datagenus)){
+  nbvar<-c(nbvar,length(aggpatho$tax.Genus[aggpatho$tax.Genus == rownames(datagenus)[i]]))
+}
+datagenus<-cbind("genus"=rownames(datagenus),datagenus,nbvar)
+
+#add nb of variants before the aggregation under closest one
+nbvar<-c()
+for (i in 1:nrow(datagenus)){
+  ind<-which(groupvalues[,2]==datagenus[i,1])
+  nbvar<-c(nbvar,groupvalues[ind,5])
+}
+datagenus<-cbind(datagenus,"nbvar before reunion"=nbvar)
+
+datagenus<-as.data.frame(datagenus)
+setDT(datagenus)
+
+
+ggplot(datagenus, aes(x=genus, y=as.numeric(genrsums))) + 
+  geom_bar(stat = "identity")
+ggplot(datagenus, aes(x=genus, y=as.numeric(genpresum))) + 
+  geom_bar(stat = "identity")
+ggplot(datagenus, aes(x=genus, y=as.numeric(nbvar))) + 
+  geom_bar(stat = "identity")
+```
+
+
+## Multivariate analysis
+
+### PCA analysis on freq of reads
+
+```{r PCA on freqreads}
+
+pcasam <- prcomp(t(freqreads), center=T, scale=T)
+
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcasam)
+eig.val[1:4,]
+fviz_eig(pcasam)
+
+fviz_pca_ind(pcasam,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = FALSE     # Avoid text overlapping
+             )
+
+fviz_pca_var(pcasam,
+             col.var = "contrib", # Color by contributions to the principal axes
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+```
+
+### PCA analysis on nb of var
+
+```{r PCA on nb var}
+
+pcasam <- prcomp(t(aggvar2),center=T, scale=T)
+
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcasam)
+eig.val[1:4,]
+fviz_eig(pcasam)
+
+fviz_pca_ind(pcasam,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = FALSE     # Avoid text overlapping
+             )
+
+fviz_pca_var(pcasam,
+             col.var = "contrib", # Color by contributions to the principal axes
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+
+
+```
+
+### PCA analysis on presence/absence
+
+```{r PCA on presence}
+
+#PCA
+pcabin <- prcomp(t(aggbin),center=T)
+
+# Eigenvalues
+eig.val <- get_eigenvalue(pcabin)
+eig.val[1:10,]
+fviz_eig(pcabin)
+
+fviz_pca_ind(pcabin,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = FALSE     # Avoid text overlapping
+             )
+
+fviz_pca_var(pcabin,
+             col.var = "contrib", # Color by contributions to the principal axes
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+# Contributions of variables to PC1
+fviz_contrib(pcabin, choice = "var", axes = 1, top = 10)
+
+```
+Sur les presence/absence, ce sont les deux genres rares qui sont les mieux représentés
+
+## Diversity index
+
+```{r shannon index}
+
+#Shannon diversity index
+shindex<-c()
+for (j in 1:ncol(freqreads)){
+  sumline<-c()
+  for (i in 1:nrow(freqreads)){
+    p<-as.numeric(freqreads[i,j])
+    if (p>0) {
+    sumline<-c(sumline, p*log(p))
+    }
+  }
+  shindex<-c(shindex,-sum(sumline))
+}
+hist(shindex)
+
+plot(shindex,as.numeric(aggpatho2[7,])) ####CORRELATION NEGATIVE!!!
+
+#now want to check directly index on oidium
+
+shintab<-cbind(shindex,t(freqreads))
+
+#new table to merge with shindex
+pathodata2<-pathodata[,1:4]
+rownames(pathodata2)<-pathodata[,1]
+shintab<-merge(shintab[,1:2], pathodata2, by=0) ##besoin de nettoyer  la table
+
+plot(shintab$shindex,shintab$Oïdium)
+cor.test(shintab$shindex,as.numeric(shintab$Oïdium))
+
+
+```
+
+
+
+## Relation with the field
+
+```{r patho}
+
+#import field data on phytopathologies 
+patho<-read.csv("notations_patho.csv",header=T)
+colnames(patho)<-patho[2,]
+tabpatho<-patho[-1:-2,] #first lines are empty
+
+#merge table
+
+tagg<-t(aggpatho2) #here can use aggpatho2 or aggvar2
+rownames(tabpatho)<-tabpatho[,1]
+tabpatho2<-tabpatho[,-1]
+
+pathodata<-merge(tabpatho2, tagg, by=0)
+
+
+nb<-rowSums(pathodata[,4:10])
+
+pathonb<-cbind(nb,pathodata)
+
+```
+
+Results from the phytopatho observations performed in june are imported. They consist in an impact mark for powdery mildew and for wheat rust, for each genotype. We can have a look at this data to find a possible correlation.
+
+
+```{r test patho}
+
+#patho mark according to #nb of asv
+plot(pathonb$g__Blumeria,pathonb$Oïdium, main="Powdery mildew mark according to nb of Blumeria reads")
+cor.test(pathonb$g__Blumeria,as.numeric(pathonb$Oïdium))
+
+#Table without 0 for Rouille
+ind<-which(pathonb$Rouille==0)
+not0rouille<-pathonb[-ind,]
+
+plot(not0rouille$g__Puccinia,not0rouille$Rouille, main="Wheat rust mark according to nb of Puccinia variants")
+cor.test(not0rouille$g__Puccinia,as.numeric(not0rouille$Rouille))
+
+#patho mark according to #nb of reads
+plot(pathonb$nb,pathonb$Oïdium,main="Powdery mildew mark according to nb of fungi genera")
+cor.test(pathonb$nb,as.numeric(pathonb$Oïdium))
+
+```
+
+correlation nb reads Blumeria et note d'Oïdium au champs
+pas le cas avec rouille (même en enlevant les nuls)
+
+
+
+## Field plan
+
+```{r plan, eval=FALSE}
+
+plan<-read.csv("plan_mono_nt.csv",header=T)
+plan<-plan[,-1]
+for (i in 1:14){
+  for (j in 1:13){
+    plan[i,j]<-paste0("EPO_",plan[i,j])
+  }
+}
+
+#creating a table of interesting values for each sample
+nbgen<-rowSums(t(aggbin))
+nbreads<-rowSums(t(aggpatho2))
+nbvar<-rowSums(t(aggvar2))
+
+taggpatho2<-t(aggpatho2)
+
+tablefield<-cbind(nbgen,nbreads,nbvar)
+names<-colnames(taggpatho2)
+for (g in 1:ncol(taggpatho2)){
+  tablefield<-cbind(tablefield,taggpatho2[,g])
+  colnames(tablefield)[g+3]<-paste0("nb_of_",names[g])
+
+}
+
+namestf<-rownames(tablefield)
+todel<-c("EPO_145bis", "EPO_153bis", "EPO_265bis", "EPO_350bis", "EPO_368bis","EPO_373bis","EPO_388bis","EPO_410bis")
+itodel<-c()
+for (i in 1:nrow(tablefield)){
+  if (namestf[i] %in% todel){
+    itodel<-c(itodel,i)
+  }
+}
+tablefield<-tablefield[-itodel,]
+namestf<-rownames(tablefield)
+
+
+create.heatmap<-function(x){ #x is the nb of column of tablefield we want to represent
+  heattable<- matrix(0, nrow = nrow(plan), ncol = ncol(plan))
+  print(heattable)
+  for (i in 1:nrow(plan)){
+    for (j in 1:ncol(plan)){
+      if (plan[i,j] %in% namestf){
+        ind<-which(namestf==plan[i,j])
+        heattable[i,j]<-tablefield[ind,x]
+      }
+      else{
+        heattable[i,j]<-NA
+      }
+    }
+  }
+  print(heattable)
+  print(heatmap(heattable, Rowv = NA, Colv = NA))
+  return(as.data.frame(heattable))
+}
+
+heattable<-create.heatmap(2)
+heattable<-create.heatmap(9)
+
+
+```
+
