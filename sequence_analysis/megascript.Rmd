@@ -17,39 +17,15 @@ library(seqinr)
 setwd("E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data")
 
 #importation of the taxa table
-tax_final2<-readRDS("tax_2207final.rds")
 tax_euka<-readRDS("tax_euka2207final2.rds")
 
 ```
 
 ```{r table}
-taxtax<-merge(tax_final2[1], tax_final2[2],by=0)
 taxeuka<-merge(tax_euka[1], tax_euka[2], by=0)
 ```
 
 ```{r function}
-
-create.fasta <- function(x){  #x is the specific genus we want
-  
-  #finding the sequences of that genus x 
-  seqs<-c() #will contain sequences
-  names<-c() #will contain their names
-  count<-0 #will contain the nb of sequences found
-  for (i in 1:12963){
-    if (is.na(taxtax[i,7])==FALSE & taxtax[i,7]==x){ #if belongs to genus
-      seqs<-c(seqs,taxtax[i,1]) #add seq to list
-      count<-count+1
-      sp<-NA 
-      if (is.na(taxtax[i,8])==FALSE & taxtax[i,15]>50){ #if there is an identified species with satisfactory bootstrap value
-        sp<-taxtax[i,8] #keep that species name
-      }
-      names<-c(names,paste0(x,"__",sp,count)) #the name of the seq will be genus name, a unique nb, potential species name
-    }
-  }
-  result<-cbind(seqs,names)
-  return(result)
-}
-
 
 create.fasta.euka <- function(rank, x){  #rank is the level of classification we want as the nb of column, x is the specific taxon we want in this level
   
@@ -71,19 +47,6 @@ create.fasta.euka <- function(rank, x){  #rank is the level of classification we
   result<-cbind(seqs,names)
   return(result)
 }
-
-```
-
-```{r creating fasta}
-
-#using fungi table
-result<-create.fasta("g__Pyrenophora")
-
-seqs = as.list(result[,1])
-names = as.list(result[,2])
-write.fasta(seqs, names, "Pyrenophora.fasta",
-            open = "w", as.string = FALSE)
-
 
 ```
 
