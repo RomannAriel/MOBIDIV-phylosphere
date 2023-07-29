@@ -17,7 +17,7 @@ library(seqinr)
 setwd("E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data")
 
 #importation of the taxa table
-tax_euka<-readRDS("tax_euka2207final2.rds")
+tax_euka<-readRDS("tax_euka2207final3.rds")
 
 ```
 
@@ -52,11 +52,11 @@ create.fasta.euka <- function(rank, x){  #rank is the level of classification we
 
 ```{r creating fasta euka}
 #using euka table
-result<-create.fasta.euka(7, "g__Triticum")
+result<-create.fasta.euka(7, "g__Blumeria")
 
 seqs = as.list(result[,1])
 names = as.list(result[,2])
-write.fasta(seqs, names, "Triticum.fasta",
+write.fasta(seqs, names, "Blumeria.fasta",
             open = "w", as.string = FALSE)
 ```
 
