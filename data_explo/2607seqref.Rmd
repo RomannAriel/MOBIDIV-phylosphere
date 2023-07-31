@@ -1,5 +1,5 @@
 ---
-title: "Data analysis with removed 9 blumeria"
+title: "Data analysis on 7 genera"
 output: html_document
 date: "2023-07-26"
 ---
@@ -27,7 +27,7 @@ rm(list=ls()) #to clear the memory if needed
 ##### DATA #####
 
 #importation of reads table
-seqtab_final<-readRDS("seqtab_final.rds")
+seqtab_final<-readRDS("seqtab_final3.rds")
 tab_final<-t(seqtab_final)
 
 tab_final2<-tab_final[,-4] #elimination of sample 104 because it looks like an error
@@ -39,7 +39,7 @@ bin_final<-tab_final2
 bin_final[bin_final>0]<-1
 
 #importation of the taxa table
-tax_final<-readRDS("tax_euka2207final.rds")
+tax_final<-readRDS("tax_euka2207final3.rds")
 
 ```
 
@@ -76,12 +76,6 @@ abline(v = mean(presencesumsample), col = 'red') #adding the mean vertical line
 
 ```{r asv presence}
 presencesumvar<-rowSums(presence[,16:194])
-check<-c()
-for (i in 1:12963){
-  if (presencesumvar[i]<3){
-    check<-c(check,i)
-  }
-}
 
 hist(presencesumvar, col="steelblue", main="nb of sample of presence per variant")
 abline(v = mean(presencesumvar), col = 'red') #adding the mean vertical line
@@ -107,7 +101,7 @@ pathogen<-c("g__Zymoseptoria", "g__Fusarium", "g__Microdochium", "g__Puccinia", 
 
 
 tokeep<-c()
-for (i in 1:12963){
+for (i in 1:nrow(merged)){
   if (merged[i,7] %in% pathogen){ #if the genus of a variant is one of the patho ones
     tokeep<-c(tokeep,i) #we keep its line
   }
@@ -120,7 +114,7 @@ pathomerged<-rbind(merged[tokeep,]) #new table with only patho genera
 
 ```{r seq and name function}
 
-create.fasta <- function(rank, x){  #rank is the level of classification we want as the nb of column, x is the specific taxon we want in this level
+stock.seq <- function(rank, x){  #rank is the level of classification we want as the nb of column, x is the specific taxon we want in this level
   
   #finding the sequences of that taxon x 
   seqs<-c() #will contain sequences of taxon x
@@ -154,7 +148,7 @@ create.fasta <- function(rank, x){  #rank is the level of classification we want
 
 compar.pres<-function(x){  #this function creates a table with every sequences from a genus, its invented unique name, and the nb of samples it appears in
   
-  res<-as.data.frame(create.fasta(7,x)) #we get that table with all sequences from a genus+names given
+  res<-as.data.frame(stock.seq(7,x)) #we get that table with all sequences from a genus+names given
   print(res)
   seqs<-res[,1] #first col is sequences
 
@@ -167,7 +161,7 @@ compar.pres<-function(x){  #this function creates a table with every sequences f
     for (i in 1:length(namesbin)){ #go through the whole table
   
       if (namesbin[i]==seqs[l]){ #we find the line of the sequence
-      nbpres<-c(nbpres, sum(bin_final[i,])) #count the presence and had the value to the vector
+      nbpres<-c(nbpres, sum(bin_final[i,])) #count the presence and add the value to the vector
         break
       }
     
@@ -191,7 +185,7 @@ for (i in 1:length(pathogen)){
 
   genus<-pathogen[i]
   
-  result<-create.fasta(7,genus)
+  result<-stock.seq(7,genus)
   
   seqs = as.list(result[,1])
   names = as.list(result[,2])
@@ -222,19 +216,18 @@ for (g in 1: length(distlist)){
   mdist[,1]<-gsub("_", "__", mdist[,1])
   rownames(mdist)<-mdist[,1]
   mdist<-as.matrix(mdist[,-1])
-
+  
   mdist[upper.tri(mdist)] <- t(mdist)[upper.tri(mdist)] #having a symmetric matrix will be easier
   diag(mdist)<-0
 
-  #Identifying sequences present in enough samples
+  #Identifying sequences present in more than 1 sample
   mainseq<-c()
 
   for (i in 1:nrow(gentable)){ #we go through all the sequences of the genus
-    if (gentable[i,3]>2){
+    if (gentable[i,3]>1){
       mainseq<-c(mainseq,gentable[i,2])
     }
   }
-
 
   #all other sequences will be attributed to the "closest" (in nb of diff) among the main ones
 
@@ -310,7 +303,6 @@ aggpatho <- toaggreg[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
 On regroupe sous le variant gardé le plus proche
 
 ```{r final aggregation }
-
 
 ####### Aggregation of reads table
 setDT(aggpatho)
@@ -493,41 +485,6 @@ fviz_contrib(pcabin, choice = "var", axes = 1, top = 10)
 ```
 Sur les presence/absence, ce sont les deux genres rares qui sont les mieux représentés
 
-## Diversity index
-
-```{r shannon index}
-
-#Shannon diversity index
-shindex<-c()
-for (j in 1:ncol(freqreads)){
-  sumline<-c()
-  for (i in 1:nrow(freqreads)){
-    p<-as.numeric(freqreads[i,j])
-    if (p>0) {
-    sumline<-c(sumline, p*log(p))
-    }
-  }
-  shindex<-c(shindex,-sum(sumline))
-}
-hist(shindex)
-
-plot(shindex,as.numeric(aggpatho2[7,])) ####CORRELATION NEGATIVE!!!
-
-#now want to check directly index on oidium
-
-shintab<-cbind(shindex,t(freqreads))
-
-#new table to merge with shindex
-pathodata2<-pathodata[,1:4]
-rownames(pathodata2)<-pathodata[,1]
-shintab<-merge(shintab[,1:2], pathodata2, by=0) ##besoin de nettoyer  la table
-
-plot(shintab$shindex,shintab$Oïdium)
-cor.test(shintab$shindex,as.numeric(shintab$Oïdium))
-
-
-```
-
 
 
 ## Relation with the field
@@ -559,9 +516,14 @@ Results from the phytopatho observations performed in june are imported. They co
 
 ```{r test patho}
 
-#patho mark according to #nb of asv
+#patho mark according to #nb of reads
 plot(pathonb$g__Blumeria,pathonb$Oïdium, main="Powdery mildew mark according to nb of Blumeria reads")
 cor.test(pathonb$g__Blumeria,as.numeric(pathonb$Oïdium))
+
+#patho mark according to tot #nb of reads
+plot(pathonb$nb,pathonb$Oïdium,main="Powdery mildew mark according to nb of fungi genera")
+cor.test(pathonb$nb,as.numeric(pathonb$Oïdium))
+
 
 #Table without 0 for Rouille
 ind<-which(pathonb$Rouille==0)
@@ -570,16 +532,49 @@ not0rouille<-pathonb[-ind,]
 plot(not0rouille$g__Puccinia,not0rouille$Rouille, main="Wheat rust mark according to nb of Puccinia variants")
 cor.test(not0rouille$g__Puccinia,as.numeric(not0rouille$Rouille))
 
-#patho mark according to #nb of reads
-plot(pathonb$nb,pathonb$Oïdium,main="Powdery mildew mark according to nb of fungi genera")
-cor.test(pathonb$nb,as.numeric(pathonb$Oïdium))
-
 ```
 
 correlation nb reads Blumeria et note d'Oïdium au champs
 pas le cas avec rouille (même en enlevant les nuls)
 
 
+## Diversity index
+
+```{r shannon index}
+
+#Shannon diversity index
+shindex<-c()
+for (j in 1:ncol(freqreads)){
+  sumline<-c()
+  for (i in 1:nrow(freqreads)){
+    p<-as.numeric(freqreads[i,j])
+    if (p>0) {
+    sumline<-c(sumline, p*log(p))
+    }
+  }
+  shindex<-c(shindex,-sum(sumline))
+}
+hist(shindex)
+
+#now want to check directly index on oidium
+
+shintab<-cbind(shindex,t(freqreads))
+
+#new table to merge with shindex
+pathodata2<-pathodata[,1:4]
+rownames(pathodata2)<-pathodata[,1]
+shintab<-merge(shintab[,1:2], pathodata2, by=0) ##besoin de nettoyer  la table
+
+plot(shintab$shindex,shintab$Oïdium)
+cor.test(shintab$shindex,as.numeric(shintab$Oïdium))
+
+plot(shindex,as.numeric(aggpatho2[1,])) ####CORRELATION NEGATIVE!!!
+cor.test(shindex,as.numeric(aggpatho2[1,]))
+
+
+```
+Shannon index H' is an alpha-diversity index which account for the diversity of species (or as used here, genera) in a population (here, a sample). If a population is homogenous (with only one genus), H'=0. It is calculated as follows :
+$H' = -\sum( p_i*ln(p_i))$
 
 ## Field plan
 

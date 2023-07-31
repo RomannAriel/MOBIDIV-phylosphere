@@ -1,11 +1,4 @@
-# Charger un fichier RDS nommé "data.rds" dans une variable nommée "data"
-#file<-"C:/Users/david/Documents/RTRA et Campus/PPR 2019/Mobidiv/stage Romann Charbonnier/sequences/tax_final.rds"
-
-
-if (!requireNamespace("BiocManager", quietly=TRUE))
-  install.packages("BiocManager")
-
-# BiocManager::install("msa")
+#####ATTENTION le ne code va pas, mistmatch car changement d'ordre des séquences après alignement
 
 # Charger le package seqinr
 library(seqinr)
@@ -17,14 +10,14 @@ library(stringr)
 
 # Etape 1 : données brutes
 ## lecture du fichier issus de l'assignation
-file<-"C:/Users/david/Documents/RTRA et Campus/PPR 2019/Mobidiv/stage Romann Charbonnier/sequences/tax_euka2207final.rds"
+file<-"E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data/tax_euka2207final3.rds"
 
 data <- readRDS(file)
 data<-as.data.frame(data)
 dim(data)
 
 # compter les reads de chacun des clusters
-file<-"C:/Users/david/Documents/RTRA et Campus/PPR 2019/Mobidiv/stage Romann Charbonnier/sequences/seqtab_final.rds"
+file<-"E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data/seqtab_final3.rds"
 
 reads <- readRDS(file)
 reads<-as.data.frame(reads)
@@ -109,7 +102,7 @@ D<-as.matrix(dist)
 dim(D)
 hist(colSums(D))
 liste<-names(which(colSums(D)<100))
-
+liste
 
 # Eliminer ces séquences du fichier de départ
 ##  lecture du fichier
@@ -192,8 +185,6 @@ D <- dist.dna(dnabin_obj)
 D<-as.matrix(D)
 dim(D)
 
-D[2,1]
-
 # recherche des paires identiques
 hist(D)
 LIGNE<-1+round(which(D==0)/454)
@@ -224,10 +215,25 @@ write.tree(tree, file = "mon_arbre.newick")
 
 # Créer un objet haplotype à partir de l'objet DNAbin filtré
 h <- haplotype(dnabin_obj)
-
-# Inférer et représenter un réseau d'haplotypes avec la méthode TCS
 net <- haploNet(h)
-plot(net, cex=0.1)
+
+# fq donne l'effectif des individus dans chaque haplotype, ici cela vaudra 1 pour les 23 haplotypes puisque le fasta ne présente qu'une répétition pour les variants identifiés par JF
+fq <- attr(net, "freq")
+
+# à la place on met le log (ou le log10) du nombre de reads dans fq, les haplotypes sont dans le meme ordre que dans le fichier de JF , on a donc fait les comptages avant dans le script
+fq<-log(data$Totreads)
+# on dessine le reseau , tu peux lire la doc https://cran.r-project.org/web/packages/pegas/pegas.pdf
+plot(net, size = fq, cex=0.6, font=3, scale.ratio = 1,
+     col='blue', bg="yellow", asp=1, lwd=1, lty=1,
+     show.mutation =2,      fast=F)
+
+o <- replot()
+
+## les differences entre haplotypes
+Mutation_matrix<-matrix(NA, nrow = 23, ncol = 23)
+for (i in 1:22) {
+  for (j in (i+1):23) {
+    Mutation_matrix[i,j]<-nrow(diffHaplo(h, a = i, b = j, strict = TRUE)) }}
 
 
 # https://bioconductor.org/packages/release/bioc/manuals/fastreeR/man/fastreeR.pdf

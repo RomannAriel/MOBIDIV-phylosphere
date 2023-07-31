@@ -1,0 +1,303 @@
+---
+title: "B graminis"
+output: html_document
+date: "2023-07-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Data
+
+```{r data, warning=FALSE, message=FALSE}
+setwd("E:/Cours/SupAgro/Stage M1/Analyses/Romann/Data")
+
+#packages
+library(data.table)
+library(dplyr)
+library(seqinr)
+library(ggplot2)
+library(factoextra)
+library(car)
+library(vegan)
+
+rm(list=ls()) #to clear the memory if needed
+
+##### DATA #####
+
+#importation of reads table
+seqtab_final<-readRDS("seqtab_final3.rds")
+tab_final<-t(seqtab_final)
+
+tab_final2<-tab_final[,-4] #elimination of sample 104 because it looks like an error
+
+colnames(tab_final2)<-paste0("EPO_", colnames(tab_final2))
+
+#creation of binary (presence/absence) table
+bin_final<-tab_final2
+bin_final[bin_final>0]<-1
+
+#importation of the taxa table
+tax_final<-readRDS("tax_euka2207final3.rds")
+
+```
+
+```{r merge}
+
+merged<-merge(tax_final, tab_final2, by=0) #merged table with taxa and nb of reads
+
+#binarytable
+presence<-merge(tax_final, bin_final, by=0) #merged table with taxa and presence/absence
+
+#sum of reads for an asv
+readsum<-rowSums(merged[,16:194])
+totreads<-sum(readsum) #8737989
+
+#nb of samples with detection for an asv
+presencesum<-rowSums(presence[,16:194])
+
+
+```
+
+
+## Genus of interest
+
+```{r pathomerged}
+# on ne garde que blumeria
+blumerged<-merged[grep("g__Blumeria",merged[,7] ),]
+#que l'espèce graminis
+blumerged<-blumerged[grep("s__graminis",blumerged[,8] ),]
+```
+On ne garde que B. graminis ici
+
+```{r stock seq}
+
+  #finding the sequences of that taxon x 
+  seqs<-c() #will contain sequences of taxon x
+  names<-c() #will contain their names
+  count<-0 #will contain the nb of sequences found
+  
+  for (i in 1:nrow(blumerged)){ #we test every asv
+
+      seqs<-c(seqs,blumerged[i,1]) #add seq to list
+      count<-count+1
+      
+      names<-c(names,paste0("B_graminis","_",count)) #the name of the seq will be genus name, a unique nb, potential species name
+  }
+  
+  result<-cbind(seqs,names)
+```
+
+```{r compare presence for genus}
+
+compar.pres<-function(x){  #this function creates a table with every sequences from a genus, its invented unique name, and the nb of samples it appears in
+  
+  res<-as.data.frame(x) #we get that table with all sequences from a genus+names given
+  print(res)
+  seqs<-res[,1] #first col is sequences
+
+  namesbin<-rownames(bin_final) #the rownames of the binary table are sequences
+
+  nbpres<-c() #this vector counts the nb of presence
+  nbreads<-c() #this one counts reads
+  
+  for (l in 1:length(seqs)){ #go through all sequences
+  
+    for (i in 1:length(namesbin)){ #go through the whole table
+  
+      if (namesbin[i]==seqs[l]){ #we find the line of the sequence
+      nbpres<-c(nbpres, sum(bin_final[i,])) #count the presence and add the value to the vector
+      nbreads<-c(nbreads, sum(tab_final2[i,]))
+        break
+      }
+    
+    }
+  }
+  result<-cbind(res,nbpres, nbreads)
+  
+  return(result)
+}
+
+blucompar<-compar.pres(result)
+
+```
+
+```{r fasta file}
+seqs = as.list(blucompar[,1])
+names = as.list(blucompar[,2])
+write.fasta(seqs, names, "B_graminis.fasta",
+            open = "w", as.string = FALSE)
+```
+
+```{r dist}
+
+mdist<-as.data.frame(read.csv("E:/Cours/SupAgro/Stage M1/Analyses/Romann/MEGA/B_graminis_dist"))
+
+rownames(mdist)<-mdist[,1]
+mdist<-as.matrix(mdist[,-1])
+mdist[upper.tri(mdist)] <- t(mdist)[upper.tri(mdist)] #having a symmetric matrix will be easier
+diag(mdist)<-0
+
+
+#Identifying sequences present in more than 1 sample
+mainseq<-c()
+
+for (i in 1:nrow(blucompar)){ #we go through all the sequences of the genus
+  if (blucompar[i,3]>1){ #if the sequence is present more than once, we keep it
+      mainseq<-c(mainseq,blucompar[i,2])
+  }
+}
+
+#all other sequences will be attributed to the "closest" (in nb of diff) among the main ones
+
+blucompar2<-cbind(blucompar,"seq_ref"=blucompar[,2],"distance_to_ref"=0)#these last column will contain for each seq the name of the main one it is the closest to and then its distance to it
+
+namecol<-colnames(mdist)
+namerow<-rownames(mdist)
+  
+for (i in 1:nrow(blucompar2)){ #we test all sequences 
+  
+  #case1:the sequence is one of the main ones
+  if ((blucompar2[i,2] %in% mainseq)==FALSE){ #if the sequence is not already one of the main ones
+    
+    for (k in 1:nrow(mdist)){
+      if (namerow[k]==blucompar2[i,2]){ #we find its line in the distance table
+
+        closest<-1 #initialisation of the closest one
+        valueclosest<-1000
+        
+        for (l in 1:ncol(mdist)){ #we look at all other sequences
+
+          if (mdist[k,l]<valueclosest & namecol[l] %in% mainseq & k!=l) { #if we find a sequence that is in the main sequences list and that is closer to the one we're studying
+            closest<-l #this sequence becomes the closest one
+            valueclosest<-mdist[k,l]
+          }
+        }
+      blucompar2[i,5]<-namecol[closest]
+      blucompar2[i,6]<-valueclosest
+      }
+    }
+      
+  }
+    
+}
+
+```
+
+```{r aggregation}
+toaggreg<-blumerged
+colnames(toaggreg)[9] <- "ref_seq"
+toaggreg<-toaggreg[,-10:-15]
+toaggreg[,9]<-toaggreg[,1] #col9 will be used to store the ref seq
+
+for (i in 1:nrow(blucompar2)){ #for every variant that has been tested for distance
+  ta<-which(toaggreg[,1]==blucompar2[i,1]) #finding the line of the variant
+  toaggreg[ta,9]<-blucompar2[i,5] #seq ref
+  #ind<-which(blucompar2[,2]==toaggreg[ta,9]) #finding the sequence based on its name
+  #toaggreg[ta,9]<-blucompar2[ind,1]
+}
+
+setDT(toaggreg)
+
+group_cols <- c("tax.Phylum,tax.Genus,ref_seq")  #We group by ref_seq (and keep other info)
+sample_cols <- names(toaggreg)[10:188]  # We want to apply the grouping to these columns (sample ones)
+
+# We create new aggregated variable by sum
+aggpatho <- toaggreg[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
+names<- aggpatho$ref_seq
+aggpatho2 <- data.frame(aggpatho[, -1:-3], row.names = names)
+
+
+```
+
+
+```{r frequence table}
+freqreads<-aggpatho2
+
+for (j in 1:ncol(freqreads)){
+  tot<-sum(as.numeric(freqreads[1:7,j]))
+  for (i in 1:nrow(freqreads)){
+    val<-as.numeric(freqreads[i,j])
+    freqreads[i,j]<-as.numeric(val/tot)
+  }
+}
+```
+
+
+## Relation with the field
+
+```{r patho}
+
+#import field data on phytopathologies 
+patho<-read.csv("notations_patho.csv",header=T)
+colnames(patho)<-patho[2,]
+tabpatho<-patho[-1:-2,] #first lines are empty
+
+#merge table
+
+tagg<-t(aggpatho2) #here can use aggpatho2 or aggvar2
+rownames(tabpatho)<-tabpatho[,1]
+tabpatho2<-tabpatho[,-1]
+
+pathodata<-merge(tabpatho2, tagg, by=0)
+
+
+nb<-rowSums(pathodata[,4:10])
+
+pathonb<-cbind(nb,pathodata)
+rownames(pathonb)<-pathonb[,2]
+
+```
+
+Results from the phytopatho observations performed in june are imported. They consist in an impact mark for powdery mildew and for wheat rust, for each genotype. We can have a look at this data to find a possible correlation.
+
+
+```{r test patho}
+
+#patho mark according to #nb of reads of most present blumeria
+plot(pathonb$B_graminis_199,pathonb$Oïdium, main="Powdery mildew mark according to nb of Blumeria reads")
+cor.test(pathonb[,9],as.numeric(pathonb$Oïdium))
+
+#patho mark according to tot #nb of reads of B.graminis
+sumblu<-rowSums(pathonb[,5:27])
+plot(sumblu,pathonb$Oïdium, main="Powdery mildew mark according to nb of Blumeria graminis reads")
+cor.test(sumblu,as.numeric(pathonb$Oïdium))
+
+
+```
+
+## Diversity index
+
+```{r shannon index}
+
+#Shannon diversity index
+shindex<-c()
+for (j in 1:ncol(freqreads)){
+  sumline<-c()
+  for (i in 1:nrow(freqreads)){
+    p<-as.numeric(freqreads[i,j])
+    if (p>0) {
+    sumline<-c(sumline, p*log(p))
+    }
+  }
+  shindex<-c(shindex,-sum(sumline))
+}
+hist(shindex)
+
+#now want to check directly index on oidium
+
+shintab<-cbind(shindex,pathodata[,1])
+rownames(shintab)<-shintab[,2]
+
+shintab<-merge(shintab, pathonb, by=0)
+shintab<-shintab[,-3:-5]
+
+plot(shintab$shindex,shintab$Oïdium)
+cor.test(as.numeric(shintab$shindex),as.numeric(shintab$Oïdium))
+#Diversity of all genera is anti-correlated with mildew but NOT diversity of Blumeria
+
+
+```
+Shannon index H' is an alpha-diversity index which account for the diversity of species (or as used here, genera) in a population (here, a sample). If a population is homogenous (with only one genus), H'=0. It is calculated as follows :
+$H' = -\sum( p_i*ln(p_i))$
