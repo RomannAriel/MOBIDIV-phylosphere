@@ -5,7 +5,7 @@ date: "2023-07-26"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo =FALSE)
 ```
 
 ## Data
@@ -64,12 +64,12 @@ presencesum<-rowSums(presence[,16:194])
 
 #nb of reads per sample (histogram)
 sumsample<-colSums(merged[,16:194])
-hist(sumsample, col="steelblue", main="nb of reads per sample")
+hist(sumsample, col="steelblue1", main="nb of reads per sample")
 abline(v = mean(sumsample), col = 'red') #adding the mean vertical line
 
 #nb of variants per sample (histogram)
 presencesumsample<-colSums(presence[,16:194])
-hist(presencesumsample, col="steelblue", main="nb of asv per sample")
+hist(presencesumsample, col="steelblue3", main="nb of asv per sample")
 abline(v = mean(presencesumsample), col = 'red') #adding the mean vertical line
 
 ```
@@ -77,7 +77,12 @@ abline(v = mean(presencesumsample), col = 'red') #adding the mean vertical line
 ```{r asv presence}
 presencesumvar<-rowSums(presence[,16:194])
 
-hist(presencesumvar, col="steelblue", main="nb of sample of presence per variant")
+
+hist(presencesumvar, col="steelblue4", main="number of sample of presence per variant", xlab="number of samples", ylab="number of variants")
+abline(v = mean(presencesumvar), col = 'red') #adding the mean vertical line
+
+hist(presencesumvar, col="steelblue4", main="number of sample of presence per variant 
+     (present more than 50 times)", xlab="number of samples", ylab="number of variants", xlim=c(50,180), ylim=c(0,40))
 abline(v = mean(presencesumvar), col = 'red') #adding the mean vertical line
 ```
 
@@ -286,10 +291,11 @@ toaggreg[,9]<-toaggreg[,1] #col9 will be used to store the ref seq
 
 for (i in 1:nrow(resall)){ #for every variant that has been tested for distance
   ta<-which(toaggreg[,1]==resall[i,1]) #finding the line of the variant
-  toaggreg[ta,9]<-resall[i,4] #f
+  toaggreg[ta,9]<-resall[i,4] 
   ind<-which(resall[,2]==toaggreg[ta,9]) #finding the sequence based on its name
   toaggreg[ta,9]<-resall[ind,1]
 }
+
 
 setDT(toaggreg)
 
@@ -298,6 +304,7 @@ sample_cols <- names(toaggreg)[10:188]  # We want to apply the grouping to these
 
 # We create new aggregated variable by sum
 aggpatho <- toaggreg[, lapply(.SD, sum), by = group_cols, .SDcols = sample_cols]
+
 
 ```
 On regroupe sous le variant gardé le plus proche
@@ -384,18 +391,42 @@ for (i in 1:nrow(datagenus)){
   ind<-which(groupvalues[,2]==datagenus[i,1])
   nbvar<-c(nbvar,groupvalues[ind,5])
 }
-datagenus<-cbind(datagenus,"nbvar before reunion"=nbvar)
+datagenus<-cbind(datagenus,"initialnbvar"=nbvar) #this is before reunion
 
 datagenus<-as.data.frame(datagenus)
-setDT(datagenus)
+
+row.names(datagenus)<-datagenus[,1]
+row.names(datagenus)<-c("Blumeria","Alternaria","Zymoseptoria","Pyrenophora","Microdochium","Fusarium","Puccinia")
+
+library(forcats)
+
+ggplot(datagenus, aes(x=row.names(datagenus), y=as.numeric(genrsums))) + 
+  geom_bar(color="steelblue1", fill="steelblue1", stat = "identity") +
+  xlab("genus")+
+  ylab("number of reads")+
+  coord_flip()
+
+ggplot(datagenus, aes(x=row.names(datagenus), y=as.numeric(genpresum))) + 
+  geom_bar(color="steelblue4", fill="steelblue4", stat = "identity") +
+  xlab("genus")+
+  ylab("number of presence")+
+  coord_flip()
+
+ggplot(datagenus, aes(x=row.names(datagenus), y=as.numeric(nbvar))) + 
+  geom_bar(color="steelblue3", fill="steelblue3", stat = "identity") +
+  xlab("genus")+
+  ylab("number of variants
+        (after reunion)")+
+  coord_flip()
+
+ggplot(datagenus, aes(x=row.names(datagenus), y=as.numeric(initialnbvar))) + 
+  geom_bar(color="steelblue3", fill="steelblue3", stat = "identity") +
+    xlab("genus")+
+  ylab("number of variants
+       (before reunion)")+
+  coord_flip()
 
 
-ggplot(datagenus, aes(x=genus, y=as.numeric(genrsums))) + 
-  geom_bar(stat = "identity")
-ggplot(datagenus, aes(x=genus, y=as.numeric(genpresum))) + 
-  geom_bar(stat = "identity")
-ggplot(datagenus, aes(x=genus, y=as.numeric(nbvar))) + 
-  geom_bar(stat = "identity")
 ```
 
 
@@ -460,7 +491,7 @@ fviz_pca_var(pcasam,
 ```{r PCA on presence}
 
 #PCA
-pcabin <- prcomp(t(aggbin),center=T)
+pcabin <- prcomp(t(aggbin),center=TRUE)
 
 # Eigenvalues
 eig.val <- get_eigenvalue(pcabin)
@@ -470,13 +501,13 @@ fviz_eig(pcabin)
 fviz_pca_ind(pcabin,
              col.ind = "cos2", # Color by the quality of representation
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-             repel = FALSE     # Avoid text overlapping
+             repel = TRUE# Avoid text overlapping
              )
 
 fviz_pca_var(pcabin,
              col.var = "contrib", # Color by contributions to the principal axes
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-             repel = TRUE     # Avoid text overlapping
+             repel = FALSE     # Avoid text overlapping
              )
 
 # Contributions of variables to PC1
@@ -498,17 +529,29 @@ tabpatho<-patho[-1:-2,] #first lines are empty
 
 #merge table
 
-tagg<-t(aggpatho2) #here can use aggpatho2 or aggvar2
 rownames(tabpatho)<-tabpatho[,1]
 tabpatho2<-tabpatho[,-1]
 
+tagg<-t(aggpatho2) #Here with reads, we'll do the same with the variants
 pathodata<-merge(tabpatho2, tagg, by=0)
-
-
 nb<-rowSums(pathodata[,4:10])
-
 pathonb<-cbind(nb,pathodata)
 
+taggvar<-t(aggvar2) #variants table
+
+pathodatavar<-merge(tabpatho2, taggvar, by=0)
+nbvar<-rowSums(pathodata[,4:10])
+pathonbvar<-cbind(nb,pathodata)
+
+
+#Correlation between nb of reads and nb of variants present
+cor.test(pathodata$g__Puccinia,pathodatavar$g__Puccinia)
+cor.test(pathodata$g__Blumeria,pathodatavar$g__Blumeria)
+cor.test(pathodata$g__Zymoseptoria,pathodatavar$g__Zymoseptoria)
+cor.test(pathodata$g__Microdochium,pathodatavar$g__Microdochium)
+cor.test(pathodata$g__Fusarium,pathodatavar$g__Fusarium)
+cor.test(pathodata$g__Alternaria,pathodatavar$g__Alternaria)
+cor.test(pathodata$g__Pyrenophora,pathodatavar$g__Pyrenophora)
 ```
 
 Results from the phytopatho observations performed in june are imported. They consist in an impact mark for powdery mildew and for wheat rust, for each genotype. We can have a look at this data to find a possible correlation.
